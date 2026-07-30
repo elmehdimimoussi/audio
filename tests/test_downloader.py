@@ -20,7 +20,23 @@ from src.downloader import (
     determine_file_extension,
     download_file,
     sanitize_url_for_logging,
+    transform_google_drive_url,
 )
+
+
+def test_transform_google_drive_url():
+    # User's exact Google Drive sharing link format
+    gdrive_url = "https://drive.google.com/file/d/0B4nRO6znZNtoc1U3ZzdaaVlvcjg/view?usp=sharing&resourcekey=0-ij-QmPBxTyuMKyl4CmVyjQ"
+    transformed = transform_google_drive_url(gdrive_url)
+    
+    assert "export=download" in transformed
+    assert "id=0B4nRO6znZNtoc1U3ZzdaaVlvcjg" in transformed
+    assert "resourcekey=0-ij-QmPBxTyuMKyl4CmVyjQ" in transformed
+    assert transformed.startswith("https://drive.google.com/uc?")
+
+    # Standard non-drive URL remains unchanged
+    normal_url = "https://example.com/audio.mp3"
+    assert transform_google_drive_url(normal_url) == normal_url
 
 
 def test_sanitize_url_for_logging():

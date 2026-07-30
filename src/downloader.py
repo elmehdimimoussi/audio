@@ -74,6 +74,34 @@ def sanitize_url_for_logging(url: str) -> str:
         return "[REDACTED_URL]"
 
 
+def transform_google_drive_url(url: str) -> str:
+    """
+    Transform a Google Drive viewing link into a direct download link.
+    e.g., https://drive.google.com/file/d/FILE_ID/view?usp=sharing&resourcekey=KEY
+    -> https://drive.google.com/uc?export=download&id=FILE_ID&resourcekey=KEY
+    """
+    if "drive.google.com" not in url and "docs.google.com" not in url:
+        return url
+
+    parsed = urllib.parse.urlparse(url)
+    query_params = dict(urllib.parse.parse_qsl(parsed.query))
+
+    file_id = None
+    # Pattern: /file/d/{file_id}/...
+    match = re.search(r"/file/d/([a-zA-Z0-9_-]+)", parsed.path)
+    if match:
+        file_id = match.group(1)
+    elif "id" in query_params:
+        file_id = query_params["id"]
+
+    if file_id:
+        direct_params = {"export": "download", "id": file_id}
+        if "resourcekey" in query_params:
+            direct_params["resourcekey"] = query_params["resourcekey"]
+        if "confirm" in query_params:
+            direct_params["confirm"] = query_params["confirm"]
+        return f"https://drive.google.com/uc?{urllib.parse.urlencode(direct_params)}"
+
 def determine_file_extension(url: str, content_type: Optional[str] = None) -> str:
     """
     Determine safe file extension from Content-Type or URL path.
@@ -101,32 +129,19 @@ def download_file(
 ) -> Path:
     """
     Download a file from an HTTPS URL safely.
-
-    Args:
-        url: The HTTPS URL to download from.
-        output_dir: Directory to save the downloaded file.
-        max_bytes: Maximum allowed file size in bytes.
-        connect_timeout: HTTP connect timeout in seconds.
-        read_timeout: HTTP read timeout in seconds per chunk.
-        max_redirects: Maximum number of HTTP redirects allowed.
-
-    Returns:
-        Path to the downloaded media file.
-
-    Raises:
-        ValueError: If URL is invalid, non-HTTPS, or exceeds constraints.
-        RuntimeError: If download fails or exceeds max_bytes.
+    Handles standard direct URLs as well as Google Drive sharing links.
     """
     if not url or not url.strip():
         raise ValueError("Audio URL must not be empty.")
 
     url = url.strip()
-    parsed_url = urllib.parse.urlparse(url)
+    target_url = transform_google_drive_url(url)
+    parsed_url = urllib.parse.urlparse(target_url)
 
     if parsed_url.scheme.lower() != "https":
         raise ValueError(f"Security error: Only HTTPS URLs are allowed. Got scheme '{parsed_url.scheme}'.")
 
-    sanitized_log_url = sanitize_url_for_logging(url)
+    sanitized_log_url = sanitize_url_for_logging(target_url)
     logger.info(f"Initiating safe download from URL: {sanitized_log_url}")
 
     output_dir_path = Path(output_dir)
@@ -145,12 +160,9 @@ def download_file(
     session = requests.Session()
     session.max_redirects = max_redirects
 
-    current_url = url
-    redirect_count = 0
-
     try:
         response = session.get(
-            current_url,
+            target_url,
             headers=headers,
             stream=True,
             allow_redirects=True,
@@ -164,6 +176,52 @@ def download_file(
         for res in response.history:
             res_parsed = urllib.parse.urlparse(res.url)
             if res_parsed.scheme.lower() != "https":
+                raise ValueError(f"Redirect security error: non-HTTPS redirect to {res_parsed.scheme} detected.")
+
+        response.raise_for_status()
+
+        # Handle Google Drive large file virus-scan warning pages
+        content_type = response.headers.get("Content-Type", "").lower()
+        if "text/html" in content_type and ("drive.google.com" in target_url or "docs.google.com" in target_url):
+            logger.info("Detected Google Drive HTML response. Attempting to extract virus scan confirm token...")
+            html_text = response.text
+            confirm_token = None
+            
+            # 1. Search cookies for download_warning token
+            for cookie_name, cookie_value in session.cookies.items():
+                if cookie_name.startswith("download_warning"):
+                    confirm_token = cookie_value
+                    break
+            
+            # 2. Search HTML regex for confirm token or form action
+            if not confirm_token:
+                match = re.search(r"confirm=([0-9a-zA-Z_]+)", html_text)
+                if match:
+                    confirm_token = match.group(1)
+            
+            if confirm_token:
+                confirm_url = f"{target_url}&confirm={confirm_token}"
+                logger.info("Bypassing Google Drive confirmation page with token...")
+                response = session.get(
+                    confirm_url,
+                    headers=headers,
+                    stream=True,
+                    allow_redirects=True,
+                    timeout=(connect_timeout, read_timeout),
+                )
+                response.raise_for_status()
+            else:
+                # Try generic confirm parameter for public drive files
+                confirm_url = f"{target_url}&confirm=t"
+                logger.info("Retrying Google Drive download with default confirm parameter...")
+                response = session.get(
+                    confirm_url,
+                    headers=headers,
+                    stream=True,
+                    allow_redirects=True,
+                    timeout=(connect_timeout, read_timeout),
+                )
+                response.raise_for_status()
                 raise ValueError(f"Redirect security error: non-HTTPS redirect to {res_parsed.scheme} detected.")
 
         response.raise_for_status()
