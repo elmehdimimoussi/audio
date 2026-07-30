@@ -123,8 +123,8 @@ def test_parse_caption_options():
 
 
 def test_parse_caption_options_defaults():
-    opts = parse_caption_options("", default_lang="ar", default_model="small")
+    opts = parse_caption_options("")
     assert opts.language == "ar"
-    assert opts.model == "small"
-    assert opts.output_formats == "txt,srt"
+    assert opts.model == "medium"
+    assert opts.output_formats == "txt"
     assert opts.initial_prompt == ""

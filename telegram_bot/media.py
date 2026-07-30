@@ -40,8 +40,8 @@ class MediaInfo:
 @dataclass
 class TranscriptionOptions:
     language: str = "ar"
-    model: str = "small"
-    output_formats: str = "txt,srt"
+    model: str = "medium"
+    output_formats: str = "txt"
     initial_prompt: str = ""
     vad_filter: str = "true"
     word_timestamps: str = "true"
@@ -129,16 +129,21 @@ def extract_media_info(update_dict: Dict[str, Any]) -> Tuple[Optional[MediaInfo]
     return info, None
 
 
-def parse_caption_options(caption: str, default_lang: str = "ar", default_model: str = "small") -> TranscriptionOptions:
+def parse_caption_options(
+    caption: str,
+    default_lang: str = "ar",
+    default_model: str = "medium",
+    default_formats: str = "txt",
+) -> TranscriptionOptions:
     """
     Parse optional caption parameters formatted as key=value lines or space-separated tokens.
     Example:
       language=ar
-      model=small
-      formats=txt,srt
+      model=medium
+      formats=txt
       prompt=Vocabulary list
     """
-    opts = TranscriptionOptions(language=default_lang, model=default_model)
+    opts = TranscriptionOptions(language=default_lang, model=default_model, output_formats=default_formats)
 
     if not caption or not caption.strip():
         return opts

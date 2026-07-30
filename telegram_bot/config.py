@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     TELEGRAM_MAX_DIRECT_DOWNLOAD_BYTES: int = Field(default=20 * 1024 * 1024, description="Max direct download bytes (20 MB for hosted API)")
 
     DEFAULT_LANGUAGE: str = Field(default="ar", description="Default transcription language")
-    DEFAULT_MODEL: str = Field(default="small", description="Default faster-whisper model")
+    DEFAULT_MODEL: str = Field(default="medium", description="Default faster-whisper model")
+    DEFAULT_OUTPUT_FORMATS: str = Field(default="txt", description="Default output formats")
     SHOW_GITHUB_RUN_URL: bool = Field(default=False, description="Include GitHub run URL in status message")
     TELEGRAM_API_BASE_URL: str = Field(default="https://api.telegram.org", description="Base URL for Telegram Bot API")
 

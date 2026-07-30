@@ -126,8 +126,8 @@ async def telegram_webhook(
                 "<b>Caption Options:</b>\n"
                 "Add key=value options in your message caption:\n"
                 "<code>language=ar</code>\n"
-                "<code>model=small</code> (tiny, base, small, medium, large-v3, turbo)\n"
-                "<code>formats=txt,srt</code>\n"
+                "<code>model=medium</code> (tiny, base, small, medium, large-v3, turbo)\n"
+                "<code>formats=txt</code>\n"
                 "<code>prompt=Vocabulary terms</code>"
             )
             await telegram_client.send_message(chat_id=chat_id, text=help_text, parse_mode="HTML")

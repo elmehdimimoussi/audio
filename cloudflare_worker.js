@@ -98,8 +98,8 @@ export default {
           audio_url: audioUrl,
           request_id: requestId,
           language: "ar",
-          model: "small",
-          output_formats: "txt,srt",
+          model: "medium",
+          output_formats: "txt",
           vad_filter: "true",
           word_timestamps: "true",
           initial_prompt: "",
@@ -114,7 +114,7 @@ export default {
       }
 
       const requestId = crypto.randomUUID();
-      const statusText = `✅ <b>Transcription request received.</b>\n\n• <b>Request ID:</b> <code>${requestId.slice(0, 13)}</code>\n• <b>Language:</b> <code>ar</code>\n• <b>Model:</b> <code>small</code>\n• <b>Status:</b> <code>queued</code>`;
+      const statusText = `✅ <b>Transcription request received.</b>\n\n• <b>Request ID:</b> <code>${requestId.slice(0, 13)}</code>\n• <b>Language:</b> <code>ar</code>\n• <b>Model:</b> <code>medium</code>\n• <b>Status:</b> <code>queued</code>`;
       
       const smid = await sendTelegramMessage(botToken, chatId, statusText, messageId);
 
@@ -128,8 +128,8 @@ export default {
         telegram_status_message_id: smid ? String(smid) : "",
         request_id: requestId,
         language: "ar",
-        model: "small",
-        output_formats: "txt,srt",
+        model: "medium",
+        output_formats: "txt",
         vad_filter: "true",
         word_timestamps: "true",
         initial_prompt: "",

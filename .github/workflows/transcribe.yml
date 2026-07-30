@@ -44,7 +44,7 @@ on:
       model:
         description: 'faster-whisper model size'
         required: false
-        default: 'small'
+        default: 'medium'
         type: choice
         options:
           - tiny
@@ -56,7 +56,7 @@ on:
       output_formats:
         description: 'Comma-separated output formats (txt, srt, vtt, json)'
         required: false
-        default: 'txt,srt,vtt,json'
+        default: 'txt'
         type: string
       vad_filter:
         description: 'Enable VAD (Voice Activity Detection) filter'
