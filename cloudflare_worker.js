@@ -91,7 +91,7 @@ export default {
         }
         const requestId = crypto.randomUUID();
         const smid = await sendTelegramMessage(botToken, chatId, `✅ Request received (URL Mode).\nRequest ID: <code>${requestId.slice(0, 8)}</code>`, messageId);
-        await dispatchGitHubWorkflow({
+        const dispatchResult = await dispatchGitHubWorkflow({
           githubToken, githubOwner, githubRepo, githubWorkflow, githubRef
         }, {
           source_type: "url",
@@ -104,12 +104,25 @@ export default {
           word_timestamps: "true",
           initial_prompt: "",
         });
+
+        if (!dispatchResult.ok) {
+          const errText = `❌ <b>GitHub Workflow Dispatch Failed</b>\n\n<code>${dispatchResult.message}</code>`;
+          if (smid) {
+            await editTelegramMessage(botToken, chatId, smid, errText);
+          } else {
+            await sendTelegramMessage(botToken, chatId, errText, messageId);
+          }
+          return new Response(JSON.stringify({ status: "dispatch_failed", error: dispatchResult.message }), { status: 200 });
+        }
         return new Response(JSON.stringify({ status: "url_dispatched" }), { status: 200 });
       }
 
       // 6. Extract Media File
       const media = message.audio || message.voice || message.video || message.video_note || message.document;
       if (!media || !media.file_id) {
+        if (text) {
+          await sendTelegramMessage(botToken, chatId, "🎙️ Please send an <b>audio</b>, <b>voice</b>, or <b>video</b> file to transcribe.\n\nOr use <code>/url https://...</code> for a direct link.", messageId);
+        }
         return new Response(JSON.stringify({ status: "no_media_ignored" }), { status: 200 });
       }
 

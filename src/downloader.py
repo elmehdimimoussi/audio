@@ -222,7 +222,6 @@ def download_file(
                     timeout=(connect_timeout, read_timeout),
                 )
                 response.raise_for_status()
-                raise ValueError(f"Redirect security error: non-HTTPS redirect to {res_parsed.scheme} detected.")
 
         response.raise_for_status()
 

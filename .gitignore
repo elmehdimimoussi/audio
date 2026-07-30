@@ -52,4 +52,7 @@ models/
 # Database & Environment
 *.db
 .env
-
+# Node & Tools
+node_modules/
+package-lock.json
+package.json
