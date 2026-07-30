@@ -48,3 +48,8 @@ htmlcov/
 # Models & HuggingFace Cache
 .cache/
 models/
+
+# Database & Environment
+*.db
+.env
+

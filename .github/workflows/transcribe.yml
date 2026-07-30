@@ -3,9 +3,38 @@ name: Transcribe Audio/Video
 on:
   workflow_dispatch:
     inputs:
-      audio_url:
-        description: 'HTTPS URL pointing to the audio or video file'
+      source_type:
+        description: 'Source of the media (url or telegram)'
         required: true
+        default: 'url'
+        type: choice
+        options:
+          - url
+          - telegram
+      audio_url:
+        description: 'HTTPS URL pointing to the audio or video file (used in url mode)'
+        required: false
+        default: ''
+        type: string
+      telegram_file_id:
+        description: 'Telegram file identifier (used in telegram mode)'
+        required: false
+        default: ''
+        type: string
+      telegram_chat_id:
+        description: 'Telegram chat identifier receiving status and results'
+        required: false
+        default: ''
+        type: string
+      telegram_status_message_id:
+        description: 'Telegram status message ID to update'
+        required: false
+        default: ''
+        type: string
+      request_id:
+        description: 'Unique transcription request UUID identifier'
+        required: false
+        default: ''
         type: string
       language:
         description: 'Language code (e.g. ar, en, fr, or auto)'
@@ -44,9 +73,14 @@ on:
         required: false
         default: ''
         type: string
+      upload_artifacts:
+        description: 'Upload workflow artifacts (auto/true/false)'
+        required: false
+        default: 'auto'
+        type: string
 
 concurrency:
-  group: transcribe-${{ github.workflow }}-${{ github.ref }}
+  group: transcription-${{ inputs.request_id || github.run_id }}
   cancel-in-progress: false
 
 permissions:
@@ -89,11 +123,103 @@ jobs:
 
       - name: Run unit test suite
         run: |
-          pytest tests/ -v
+          python -m pytest tests/ -v
+
+      - name: Validate Inputs
+        env:
+          SOURCE_TYPE: ${{ inputs.source_type }}
+          AUDIO_URL: ${{ inputs.audio_url }}
+          TELEGRAM_FILE_ID: ${{ inputs.telegram_file_id }}
+          TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id }}
+          TELEGRAM_STATUS_MESSAGE_ID: ${{ inputs.telegram_status_message_id }}
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          python -c '
+          import os, sys, re, uuid
+
+          st = os.getenv("SOURCE_TYPE", "").strip()
+          url = os.getenv("AUDIO_URL", "").strip()
+          file_id = os.getenv("TELEGRAM_FILE_ID", "").strip()
+          chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+          msg_id = os.getenv("TELEGRAM_STATUS_MESSAGE_ID", "").strip()
+          req_id = os.getenv("REQUEST_ID", "").strip()
+
+          if st not in ("url", "telegram"):
+              sys.exit(f"Invalid source_type: {st}")
+
+          if st == "url":
+              if not url or not url.lower().startswith("https://"):
+                  sys.exit("URL mode requires a non-empty HTTPS audio_url.")
+          elif st == "telegram":
+              if not file_id or len(file_id) > 500:
+                  sys.exit("Telegram mode requires a valid telegram_file_id (<= 500 chars).")
+              if not chat_id:
+                  sys.exit("Telegram mode requires telegram_chat_id.")
+              try:
+                  int(chat_id)
+              except ValueError:
+                  sys.exit("telegram_chat_id must be a signed decimal integer.")
+              if msg_id:
+                  try:
+                      int(msg_id)
+                  except ValueError:
+                      sys.exit("telegram_status_message_id must be a decimal integer.")
+              if not req_id:
+                  sys.exit("Telegram mode requires request_id.")
+              try:
+                  uuid.UUID(req_id)
+              except ValueError:
+                  sys.exit("request_id must be a valid UUID format.")
+          print(f"Inputs validated successfully for source_type={st}")
+          '
+
+      - name: Telegram Notify Start
+        if: ${{ inputs.source_type == 'telegram' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id }}
+          TELEGRAM_STATUS_MESSAGE_ID: ${{ inputs.telegram_status_message_id }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_STATUS_MESSAGE_ID" ]; then
+            python src/telegram_notifier.py edit-status \
+              --chat-id "$TELEGRAM_CHAT_ID" \
+              --message-id "$TELEGRAM_STATUS_MESSAGE_ID" \
+              --text "⏳ <b>GitHub runner started.</b><br>Downloading and validating media..." || true
+          fi
+
+      - name: Download Telegram Media
+        if: ${{ inputs.source_type == 'telegram' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_FILE_ID: ${{ inputs.telegram_file_id }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "::error::TELEGRAM_BOT_TOKEN secret is required for Telegram mode."
+            exit 1
+          fi
+          mkdir -p output/temp
+          python src/download_telegram_file.py \
+            --file-id "$TELEGRAM_FILE_ID" \
+            --output-path "output/temp/telegram_input.media"
+
+      - name: Telegram Notify Downloaded
+        if: ${{ inputs.source_type == 'telegram' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id }}
+          TELEGRAM_STATUS_MESSAGE_ID: ${{ inputs.telegram_status_message_id }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_STATUS_MESSAGE_ID" ]; then
+            python src/telegram_notifier.py edit-status \
+              --chat-id "$TELEGRAM_CHAT_ID" \
+              --message-id "$TELEGRAM_STATUS_MESSAGE_ID" \
+              --text "✅ <b>Media downloaded.</b><br>Starting local faster-whisper transcription..." || true
+          fi
 
       - name: Execute transcription pipeline
         id: transcribe
         env:
+          SOURCE_TYPE: ${{ inputs.source_type }}
           AUDIO_URL: ${{ inputs.audio_url }}
           LANGUAGE: ${{ inputs.language }}
           MODEL: ${{ inputs.model }}
@@ -103,20 +229,62 @@ jobs:
           INITIAL_PROMPT: ${{ inputs.initial_prompt }}
         run: |
           mkdir -p output
-          python src/transcribe.py \
-            --audio-url "$AUDIO_URL" \
-            --language "$LANGUAGE" \
-            --model "$MODEL" \
-            --output-formats "$OUTPUT_FORMATS" \
-            --vad-filter "$VAD_FILTER" \
-            --word-timestamps "$WORD_TIMESTAMPS" \
-            --initial-prompt "$INITIAL_PROMPT" \
-            --output-dir "output"
+          if [ "$SOURCE_TYPE" = "telegram" ]; then
+            python src/transcribe.py \
+              --audio-file "output/temp/telegram_input.media" \
+              --language "$LANGUAGE" \
+              --model "$MODEL" \
+              --output-formats "$OUTPUT_FORMATS" \
+              --vad-filter "$VAD_FILTER" \
+              --word-timestamps "$WORD_TIMESTAMPS" \
+              --initial-prompt "$INITIAL_PROMPT" \
+              --output-dir "output"
+          else
+            python src/transcribe.py \
+              --audio-url "$AUDIO_URL" \
+              --language "$LANGUAGE" \
+              --model "$MODEL" \
+              --output-formats "$OUTPUT_FORMATS" \
+              --vad-filter "$VAD_FILTER" \
+              --word-timestamps "$WORD_TIMESTAMPS" \
+              --initial-prompt "$INITIAL_PROMPT" \
+              --output-dir "output"
+          fi
+
+      - name: Telegram Send Results
+        if: ${{ inputs.source_type == 'telegram' && success() }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id }}
+          TELEGRAM_STATUS_MESSAGE_ID: ${{ inputs.telegram_status_message_id }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            python src/telegram_notifier.py send-results \
+              --chat-id "$TELEGRAM_CHAT_ID" \
+              --output-dir "output" \
+              --status-message-id "$TELEGRAM_STATUS_MESSAGE_ID"
+          fi
+
+      - name: Telegram Send Failure Notification
+        if: ${{ inputs.source_type == 'telegram' && failure() }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ inputs.telegram_chat_id }}
+          TELEGRAM_STATUS_MESSAGE_ID: ${{ inputs.telegram_status_message_id }}
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            python src/telegram_notifier.py send-failure \
+              --chat-id "$TELEGRAM_CHAT_ID" \
+              --request-id "$REQUEST_ID" \
+              --stage "transcription pipeline" \
+              --status-message-id "$TELEGRAM_STATUS_MESSAGE_ID" || true
+          fi
 
       - name: Generate Workflow Summary
         if: always()
         env:
-          AUDIO_URL: ${{ inputs.audio_url }}
+          SOURCE_TYPE: ${{ inputs.source_type }}
           MODEL: ${{ inputs.model }}
           LANGUAGE: ${{ inputs.language }}
         run: |
@@ -124,6 +292,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
           echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Source Mode** | \`$SOURCE_TYPE\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Model** | \`$MODEL\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Language Input** | \`$LANGUAGE\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Status** | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
@@ -136,10 +305,24 @@ jobs:
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           fi
 
-          echo "### 📁 Generated Artifacts" >> $GITHUB_STEP_SUMMARY
-          ls -lh output/ || echo "No output directory found."
+      - name: Determine Artifact Upload Status
+        id: artifact_check
+        env:
+          UPLOAD_SETTING: ${{ inputs.upload_artifacts }}
+          SOURCE_TYPE: ${{ inputs.source_type }}
+        run: |
+          if [ "$UPLOAD_SETTING" = "true" ]; then
+            echo "should_upload=true" >> $GITHUB_OUTPUT
+          elif [ "$UPLOAD_SETTING" = "false" ]; then
+            echo "should_upload=false" >> $GITHUB_OUTPUT
+          elif [ "$SOURCE_TYPE" = "url" ]; then
+            echo "should_upload=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_upload=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload Transcription Outputs
+        if: ${{ steps.artifact_check.outputs.should_upload == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: transcription-results
@@ -147,13 +330,7 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      - name: Upload Diagnostic Logs on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: diagnostic-logs
-          path: |
-            output/
-            *.log
-          retention-days: 7
-          if-no-files-found: ignore
+      - name: Cleanup Sensitive Local Media
+        if: always()
+        run: |
+          rm -rf output/temp/
