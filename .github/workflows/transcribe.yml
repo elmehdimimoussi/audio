@@ -184,8 +184,7 @@ jobs:
             python src/telegram_notifier.py edit-status \
               --chat-id "$TELEGRAM_CHAT_ID" \
               --message-id "$TELEGRAM_STATUS_MESSAGE_ID" \
-              --text "⏳ <b>GitHub runner started.</b>
-Downloading and validating media..." || true
+              --text "⏳ <b>GitHub runner started.</b>\nDownloading and validating media..." || true
           fi
 
       - name: Download Telegram Media
@@ -214,8 +213,7 @@ Downloading and validating media..." || true
             python src/telegram_notifier.py edit-status \
               --chat-id "$TELEGRAM_CHAT_ID" \
               --message-id "$TELEGRAM_STATUS_MESSAGE_ID" \
-              --text "✅ <b>Media downloaded.</b>
-Starting local faster-whisper transcription..." || true
+              --text "✅ <b>Media downloaded.</b>\nStarting local faster-whisper transcription..." || true
           fi
 
       - name: Execute transcription pipeline
