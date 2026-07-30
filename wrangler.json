@@ -3,7 +3,11 @@
   "name": "audio",
   "main": "cloudflare_worker.js",
   "compatibility_date": "2024-03-01",
-  "assets": {
-    "directory": "."
+  "vars": {
+    "ALLOWED_TELEGRAM_USER_IDS": "7922949424",
+    "GITHUB_OWNER": "elmehdimimoussi",
+    "GITHUB_REPO": "audio",
+    "GITHUB_WORKFLOW_FILE": "transcribe.yml",
+    "GITHUB_REF": "main"
   }
 }

@@ -126,7 +126,7 @@ export default {
       const smid = await sendTelegramMessage(botToken, chatId, statusText, messageId);
 
       // 7. Dispatch GitHub Actions Workflow
-      const dispatchOk = await dispatchGitHubWorkflow({
+      const dispatchResult = await dispatchGitHubWorkflow({
         githubToken, githubOwner, githubRepo, githubWorkflow, githubRef
       }, {
         source_type: "telegram",
@@ -142,8 +142,14 @@ export default {
         initial_prompt: "",
       });
 
-      if (!dispatchOk && smid) {
-        await editTelegramMessage(botToken, chatId, smid, "❌ GitHub Workflow Dispatch Failed.");
+      if (!dispatchResult.ok) {
+        const errText = `❌ <b>GitHub Workflow Dispatch Failed</b>\n\n<code>${dispatchResult.message}</code>`;
+        if (smid) {
+          await editTelegramMessage(botToken, chatId, smid, errText);
+        } else {
+          await sendTelegramMessage(botToken, chatId, errText, messageId);
+        }
+        return new Response(JSON.stringify({ status: "dispatch_failed", error: dispatchResult.message }), { status: 200 });
       }
 
       return new Response(JSON.stringify({ status: "dispatched" }), { status: 200 });
@@ -178,6 +184,10 @@ async function editTelegramMessage(token, chatId, messageId, text) {
 }
 
 async function dispatchGitHubWorkflow(cfg, inputs) {
+  if (!cfg.githubToken) {
+    return { ok: false, message: "GITHUB_TOKEN is missing or empty in Worker environment variables." };
+  }
+
   const url = `https://api.github.com/repos/${cfg.githubOwner}/${cfg.githubRepo}/actions/workflows/${cfg.githubWorkflow}/dispatches`;
 
   const res = await fetch(url, {
@@ -191,5 +201,10 @@ async function dispatchGitHubWorkflow(cfg, inputs) {
     body: JSON.stringify({ ref: cfg.githubRef, inputs }),
   });
 
-  return res.status === 204 || res.status === 200 || res.status === 201;
+  if (res.status === 204 || res.status === 200 || res.status === 201) {
+    return { ok: true, message: "Dispatched successfully" };
+  } else {
+    const text = await res.text();
+    return { ok: false, message: `HTTP ${res.status}: ${text}` };
+  }
 }
