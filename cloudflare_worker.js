@@ -113,6 +113,13 @@ export default {
         return new Response(JSON.stringify({ status: "no_media_ignored" }), { status: 200 });
       }
 
+      // Check 20MB Telegram Direct Download Limit
+      if (media.file_size && media.file_size > 20971520) {
+        const fileMb = (media.file_size / (1024 * 1024)).toFixed(1);
+        await sendTelegramMessage(botToken, chatId, `⚠️ <b>File Exceeds Direct Download Limit</b>\n\nYour file is ${fileMb} MB (limit is 20 MB).\nPlease upload your file to temporary HTTPS storage and send the link using:\n<code>/url https://example.com/media.mp3</code>`, messageId);
+        return new Response(JSON.stringify({ status: "file_oversized" }), { status: 200 });
+      }
+
       const requestId = crypto.randomUUID();
       const statusText = `✅ <b>Transcription request received.</b>\n\n• <b>Request ID:</b> <code>${requestId.slice(0, 13)}</code>\n• <b>Language:</b> <code>ar</code>\n• <b>Model:</b> <code>medium</code>\n• <b>Status:</b> <code>queued</code>`;
       
