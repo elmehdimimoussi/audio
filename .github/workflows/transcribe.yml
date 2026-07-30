@@ -1,0 +1,159 @@
+name: Transcribe Audio/Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      audio_url:
+        description: 'HTTPS URL pointing to the audio or video file'
+        required: true
+        type: string
+      language:
+        description: 'Language code (e.g. ar, en, fr, or auto)'
+        required: false
+        default: 'ar'
+        type: string
+      model:
+        description: 'faster-whisper model size'
+        required: false
+        default: 'small'
+        type: choice
+        options:
+          - tiny
+          - base
+          - small
+          - medium
+          - large-v3
+          - turbo
+      output_formats:
+        description: 'Comma-separated output formats (txt, srt, vtt, json)'
+        required: false
+        default: 'txt,srt,vtt,json'
+        type: string
+      vad_filter:
+        description: 'Enable VAD (Voice Activity Detection) filter'
+        required: false
+        default: true
+        type: boolean
+      word_timestamps:
+        description: 'Enable word-level timestamps'
+        required: false
+        default: true
+        type: boolean
+      initial_prompt:
+        description: 'Optional initial prompt (vocabulary, names, technical terms)'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: transcribe-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  transcribe:
+    name: Run faster-whisper Transcription
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies (FFmpeg)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Cache Hugging Face / faster-whisper models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ inputs.model }}-${{ runner.os }}
+          restore-keys: |
+            hf-models-${{ inputs.model }}-
+            hf-models-
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit test suite
+        run: |
+          pytest tests/ -v
+
+      - name: Execute transcription pipeline
+        id: transcribe
+        env:
+          AUDIO_URL: ${{ inputs.audio_url }}
+          LANGUAGE: ${{ inputs.language }}
+          MODEL: ${{ inputs.model }}
+          OUTPUT_FORMATS: ${{ inputs.output_formats }}
+          VAD_FILTER: ${{ inputs.vad_filter }}
+          WORD_TIMESTAMPS: ${{ inputs.word_timestamps }}
+          INITIAL_PROMPT: ${{ inputs.initial_prompt }}
+        run: |
+          mkdir -p output
+          python src/transcribe.py \
+            --audio-url "$AUDIO_URL" \
+            --language "$LANGUAGE" \
+            --model "$MODEL" \
+            --output-formats "$OUTPUT_FORMATS" \
+            --vad-filter "$VAD_FILTER" \
+            --word-timestamps "$WORD_TIMESTAMPS" \
+            --initial-prompt "$INITIAL_PROMPT" \
+            --output-dir "output"
+
+      - name: Generate Workflow Summary
+        if: always()
+        env:
+          AUDIO_URL: ${{ inputs.audio_url }}
+          MODEL: ${{ inputs.model }}
+          LANGUAGE: ${{ inputs.language }}
+        run: |
+          echo "## 🎙️ Transcription Job Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Model** | \`$MODEL\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Language Input** | \`$LANGUAGE\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status** | \`${{ job.status }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "output/transcript.json" ]; then
+            echo "### 📊 Transcription Details" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            cat output/transcript.json | grep -E '"detected_language"|"duration_seconds"|"processing_seconds"' || true
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "### 📁 Generated Artifacts" >> $GITHUB_STEP_SUMMARY
+          ls -lh output/ || echo "No output directory found."
+
+      - name: Upload Transcription Outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcription-results
+          path: output/*
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload Diagnostic Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostic-logs
+          path: |
+            output/
+            *.log
+          retention-days: 7
+          if-no-files-found: ignore
