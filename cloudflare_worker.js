@@ -11,7 +11,7 @@
 const CONFIG = {
   TELEGRAM_BOT_TOKEN: "",
   TELEGRAM_WEBHOOK_SECRET: "",
-  ALLOWED_TELEGRAM_USER_IDS: "",
+  ALLOWED_TELEGRAM_USER_IDS: "7922949424",
   GITHUB_TOKEN: "",
   GITHUB_OWNER: "elmehdimimoussi",
   GITHUB_REPO: "audio",
@@ -68,7 +68,7 @@ export default {
       }
 
       // 4. Authorization check
-      const allowedUsers = (allowedUserIdsStr || "").split(",").map(u => u.trim());
+      const allowedUsers = (allowedUserIdsStr || "").split(",").map(u => u.trim()).filter(Boolean);
       if (allowedUsers.length > 0 && !allowedUsers.includes(String(userId))) {
         await sendTelegramMessage(botToken, chatId, "⚠️ Not authorized to use this bot.");
         return new Response(JSON.stringify({ status: "user_unauthorized" }), { status: 200 });

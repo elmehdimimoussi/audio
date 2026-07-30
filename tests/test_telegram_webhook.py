@@ -57,6 +57,7 @@ def test_webhook_secret_header_verification():
     assert resp_valid.status_code == 200
 
 
+@patch("telegram_bot.app.settings.TELEGRAM_WEBHOOK_SECRET", "")
 @patch("telegram_bot.app.settings.ALLOWED_TELEGRAM_USER_IDS", "1001,1002")
 @patch("telegram_bot.app.telegram_client.send_message", new_callable=AsyncMock)
 def test_unauthorized_user_rejected(mock_send):
@@ -78,6 +79,7 @@ def test_unauthorized_user_rejected(mock_send):
     assert "not authorized" in mock_send.call_args[1]["text"].lower()
 
 
+@patch("telegram_bot.app.settings.TELEGRAM_WEBHOOK_SECRET", "")
 @patch("telegram_bot.app.settings.ALLOWED_TELEGRAM_USER_IDS", "1001")
 @patch("telegram_bot.app.telegram_client.send_message", new_callable=AsyncMock)
 @patch("telegram_bot.app.github_client.trigger_workflow", new_callable=AsyncMock)
